@@ -1,15 +1,6 @@
 const fs = require('fs');
 const Wappalyzer = require('wappalyzer');
 const path = require('path');
-const Redis = require('ioredis');
-
-
-const REDIS_KEY = 'wappalyzer-result';
-
-const redis = new Redis({
-    host: 'redis',
-    port: 6379
-});
 
 const urls = [
     'https://www.fer.unizg.hr',
@@ -33,7 +24,6 @@ const wappalyzer = new Wappalyzer();
 
         for (const website of results) {
             console.log(website.url);
-            await redis.rpush(REDIS_KEY, JSON.stringify(website.results));
         }
 
         //console.log(JSON.stringify(results, null, 2))
@@ -50,20 +40,6 @@ const wappalyzer = new Wappalyzer();
     }
 
     await wappalyzer.destroy()
-
-    var empty = false;
-    while(!empty) { //testiram pražnjenje queuea
-        await redis.lpop(REDIS_KEY, function(err, res) {
-            if (err) { console.log(err); }
-
-            if (res !== null) {
-                console.log(res.substr(10, 50));
-            }
-            else {
-                empty = true;
-            }
-        })
-    }
 
     console.log("done");
 })();
