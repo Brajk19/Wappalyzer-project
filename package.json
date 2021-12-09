@@ -20,7 +20,6 @@
   },
   "homepage": "https://github.com/Brajk19/Wappalyzer-project#readme",
   "dependencies": {
-    "ioredis": "^4.28.0",
     "puppeteer": "^11.0.0",
     "wappalyzer": "^6.9.2"
   },
