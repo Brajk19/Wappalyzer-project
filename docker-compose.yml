@@ -7,7 +7,7 @@ services:
     environment:
       - discovery.type=single-node
     volumes:
-      - esData:/usr/share/elasticsearch/data
+      - esVolume:/usr/share/elasticsearch/data
     ulimits:
       memlock:
         soft: -1
@@ -23,5 +23,5 @@ services:
       - elasticsearch
 
 volumes:
-  esData:
+  esVolume:
     driver: local
