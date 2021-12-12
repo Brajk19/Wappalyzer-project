@@ -13,11 +13,22 @@ services:
         soft: -1
         hard: -1
 
+  kibana:
+    image: "docker.elastic.co/kibana/kibana:7.13.3"
+    container_name: kibana
+    ports:
+      - '5601:5601'
+    environment:
+      ELASTICSEARCH_URL: 'http://elasticsearch:9200'
+      ELASTICSEARCH_HOSTS: '["http://elasticsearch:9200"]'
+    depends_on:
+      - elasticsearch
+
   wappalyzer-fetch:
     build:
       dockerfile: Dockerfile
       context: .
-    command: sh -c './wait-for elasticsearch:9200 -- node app.js'
+    command: sh -c './wait-for elasticsearch:9200 -t 999 -- node app.js'
     depends_on:
       - elasticsearch
     links:
