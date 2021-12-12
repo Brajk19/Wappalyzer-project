@@ -1,4 +1,7 @@
 const Wappalyzer = require('wappalyzer');
+const wappalyzer = new Wappalyzer();
+
+const mongoose = require('mongoose');
 
 const { Client } = require('@elastic/elasticsearch')
 const client = new Client({ node: 'http://elasticsearch:9200' })
@@ -28,7 +31,6 @@ async function addToElasticsearch(url, cms_name, cms_version) {
     })
 }
 
-const wappalyzer = new Wappalyzer();
 (async function (callbackfn, thisArg) {
     try {
         await wappalyzer.init()

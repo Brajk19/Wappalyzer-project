@@ -21,6 +21,7 @@
   "homepage": "https://github.com/Brajk19/Wappalyzer-project#readme",
   "dependencies": {
     "@elastic/elasticsearch": "^7.15.0",
+    "mongoose": "^6.1.1",
     "puppeteer": "^11.0.0",
     "wappalyzer": "^6.9.2"
   },
