@@ -2,6 +2,7 @@ FROM node:12-slim
 
 # ovaj RUN je uzet s https://github.com/puppeteer/puppeteer/blob/main/docs/troubleshooting.md#running-puppeteer-in-docker
 RUN apt-get update \
+    && apt-get install -y netcat \
     && apt-get install -y wget gnupg \
     && wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | apt-key add - \
     && sh -c 'echo "deb [arch=amd64] http://dl.google.com/linux/chrome/deb/ stable main" >> /etc/apt/sources.list.d/google.list' \
@@ -13,6 +14,7 @@ RUN apt-get update \
 COPY . /app
 WORKDIR /app
 
-RUN npm install
+RUN wget https://raw.githubusercontent.com/eficode/wait-for/master/wait-for
+RUN chmod +x ./wait-for
 
-CMD ["node", "app.js"]
+RUN npm install

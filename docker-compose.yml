@@ -17,6 +17,7 @@ services:
     build:
       dockerfile: Dockerfile
       context: .
+    command: sh -c './wait-for elasticsearch:9200 -- node app.js'
     depends_on:
       - elasticsearch
     links:
