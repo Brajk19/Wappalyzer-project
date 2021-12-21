@@ -4,6 +4,7 @@ const wappalyzer = new Wappalyzer();
 const MongoClient = require('mongodb').MongoClient;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION = 'urls';
+const URLS_PER_REQUEST = 5;
 
 
 const { Client } = require('@elastic/elasticsearch')
@@ -12,6 +13,17 @@ const client = new Client({ node: 'http://elasticsearch:9200' })
 const CMS_CATEGORY_ID = 1;
 const ELASTICSEARCH_INDEX = 'wappalyzer-index';
 
+const fs = require('fs');
+let offset = undefined;
+
+fs.readFile('mongoOffset.txt', 'utf8',function (err, data) {
+    offset = parseInt(data);
+
+    fs.writeFile('mongoOffset.txt', (offset + URLS_PER_REQUEST).toString(), 'utf8', function (err, data) {
+        fetchAndAnalyze();
+    });
+
+});
 
 async function addToElasticsearch(url, cms_name, cms_version) {
     console.log(url);
@@ -28,7 +40,7 @@ async function addToElasticsearch(url, cms_name, cms_version) {
     })
 }
 
-(async function () {
+async function fetchAndAnalyze() {
     let url = 'mongodb://{USERNAME}:{PASSWORD}@host.docker.internal/' + MONGO_DB + '?authSource=admin';
 
     await MongoClient.connect(url,
@@ -37,9 +49,9 @@ async function addToElasticsearch(url, cms_name, cms_version) {
 
         mongoDb.collection(MONGO_COLLECTION)
             .find({}, { projection: { url: 1, _id: 0}}) //extract only domain name
-            .limit(1)//temporary
+            .limit(URLS_PER_REQUEST)
             .sort({_id: 1})
-            .skip(0)//will be replace with variable
+            .skip(offset)
             .toArray(async function (error, result) {
 
                 //Wappalyzer
@@ -77,6 +89,6 @@ async function addToElasticsearch(url, cms_name, cms_version) {
             });
 
     })
-})();
+}
 
 
