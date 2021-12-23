@@ -6,6 +6,7 @@ const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION = 'urls';
 const URLS_PER_REQUEST = 5;
 
+const config = require('config');
 
 const { Client } = require('@elastic/elasticsearch')
 const client = new Client({ node: 'http://elasticsearch:9200' })
@@ -41,7 +42,9 @@ async function addToElasticsearch(url, cms_name, cms_version) {
 }
 
 async function fetchAndAnalyze() {
-    let url = 'mongodb://{USERNAME}:{PASSWORD}@host.docker.internal/' + MONGO_DB + '?authSource=admin';
+    const username = config.get('mongo.username');
+    const password = config.get('mongo.password');
+    let url = 'mongodb://' + username +':' + password + '@host.docker.internal/' + MONGO_DB + '?authSource=admin';
 
     await MongoClient.connect(url,
         function (err, db) {
