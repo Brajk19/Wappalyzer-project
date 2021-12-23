@@ -1,5 +1,4 @@
-const Wappalyzer = require('wappalyzer');
-const wappalyzer = new Wappalyzer();
+const Wappalyzer = require('wappalyzer-core');
 
 const MongoClient = require('mongodb').MongoClient;
 const MONGO_DB = 'websecradar';
@@ -16,6 +15,42 @@ const ELASTICSEARCH_INDEX = 'wappalyzer-index';
 
 const fs = require('fs');
 let offset = undefined;
+
+const categories = JSON.parse(
+    fs.readFileSync('./node_modules/wappalyzer/categories.json')
+)
+
+let technologies = {};
+
+//this will load from a.json to z.json (and _.json)
+for (const index of Array(27).keys()) {
+    const character = index ? String.fromCharCode(index + 96) : '_'
+
+    technologies = {
+        ...technologies,
+        ...JSON.parse(
+            fs.readFileSync(
+                './node_modules/wappalyzer/technologies/' + character + '.json'
+            )
+        ),
+    }
+}
+
+
+Wappalyzer.setTechnologies(technologies);
+Wappalyzer.setCategories(categories);
+
+let results = Wappalyzer.analyze({
+    url: 'https://example.github.io/',
+    meta: {generator: ['WordPress']},
+    headers: {server: ['Nginx']},
+    scriptSrc: ['jquery-3.0.0.js'],
+    cookies: {awselb: ['']},
+    html: '<div ng-app="">'
+});
+
+console.log(results)
+process.exit();
 
 fs.readFile('mongoOffset.txt', 'utf8',function (err, data) {
     offset = parseInt(data);
