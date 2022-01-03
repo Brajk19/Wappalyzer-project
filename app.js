@@ -2,8 +2,9 @@ const Wappalyzer = require('wappalyzer-core');
 
 const MongoClient = require('mongodb').MongoClient;
 const MONGO_DB = 'websecradar';
-const MONGO_COLLECTION = 'urls';
-const URLS_PER_REQUEST = 5;
+const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
+const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
+const URLS_PER_REQUEST = 25000;
 
 const config = require('config');
 
@@ -22,6 +23,9 @@ const categories = JSON.parse(
 
 let technologies = {};
 
+const invalidExtensions = ['js', 'css', 'json', 'xml'];
+var fail = 0;
+
 //this will load from a.json to z.json (and _.json)
 for (const index of Array(27).keys()) {
     const character = index ? String.fromCharCode(index + 96) : '_'
@@ -39,18 +43,6 @@ for (const index of Array(27).keys()) {
 
 Wappalyzer.setTechnologies(technologies);
 Wappalyzer.setCategories(categories);
-
-let results = Wappalyzer.analyze({
-    url: 'https://example.github.io/',
-    meta: {generator: ['WordPress']},
-    headers: {server: ['Nginx']},
-    scriptSrc: ['jquery-3.0.0.js'],
-    cookies: {awselb: ['']},
-    html: '<div ng-app="">'
-});
-
-console.log(results)
-process.exit();
 
 fs.readFile('mongoOffset.txt', 'utf8',function (err, data) {
     offset = parseInt(data);
@@ -85,47 +77,65 @@ async function fetchAndAnalyze() {
         function (err, db) {
         let mongoDb = db.db(MONGO_DB);
 
-        mongoDb.collection(MONGO_COLLECTION)
-            .find({}, { projection: { url: 1, _id: 0}}) //extract only domain name
+        mongoDb.collection(MONGO_COLLECTION_URLS)
+            .find({}, { projection: { url: 1, checks: 1, _id: 0}})
             .limit(URLS_PER_REQUEST)
             .sort({_id: 1})
             .skip(offset)
-            .toArray(async function (error, result) {
+            .forEach(function (document) {
+                let checks = document.checks;
+                let url = document.url;
+                let lastCheck = checks[Object.keys(checks).length - 1];
 
-                //Wappalyzer
-                try {
-                    await wappalyzer.init()
+                if(checks === undefined || url === undefined || lastCheck === undefined) {
+                    return;
+                }
 
-                    let urls = result.map(el => el.url);
-                    console.log(urls);
+                let hash = lastCheck.hash;
+                let statusCode = lastCheck.status_code;
+                let headers = lastCheck.headers;
 
-                    const results = (await Promise.all(
-                        urls.map(async (url) => ({
-                            url,
-                            results: await wappalyzer.open(url).analyze()
-                        }))
-                    ))
+                mongoDb.collection(MONGO_COLLECTION_PAGES)
+                    .find({hash: hash}, { projection: { page: 1, _id: 0}})
+                    .toArray(async function (error, result) {
+                        if(result === undefined || result[0] === undefined) {
+                            return;
+                        }
 
-                    for (const website of results) {
-                        console.log(website);
-                        for (const technology of website.results.technologies) {
-                            for (const category of technology.categories) {
-                                if (category.id === CMS_CATEGORY_ID) {
-                                    addToElasticsearch(
-                                        website.url,
-                                        technology.name,
-                                        technology.version
-                                    ).catch(console.log);
+                        let page = result[0].page;
+
+                        if(page === undefined) {
+                            return;
+                        }
+
+                        try {
+                            let detections = Wappalyzer.analyze({
+                                url: url,
+                                headers: headers,
+                                //scriptSrc: ['jquery-3.0.0.js'],
+                                //cookies: {awselb: ['']},
+                                html: page
+                            });
+
+                            let results = Wappalyzer.resolve(detections);
+
+                            for (const technology of results) {
+                                for (const category of technology.categories) {
+                                    if (category.id === CMS_CATEGORY_ID) {
+                                        console.log(technology);
+                                        addToElasticsearch(
+                                            url,
+                                            technology.name,
+                                            technology.version
+                                        ).catch(console.log);
+                                    }
                                 }
                             }
+                        } catch (e) {
+                            console.log(++fail, url);
                         }
-                    }
-                    await wappalyzer.destroy()
-                } catch (error) {
-                    console.error(error)
-                }
+                    })
             });
-
     })
 }
 
