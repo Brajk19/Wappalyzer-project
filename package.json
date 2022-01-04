@@ -23,7 +23,6 @@
     "@elastic/elasticsearch": "^7.15.0",
     "config": "^3.3.6",
     "mongodb": "^4.2.2",
-    "puppeteer": "^11.0.0",
     "wappalyzer": "^6.9.2",
     "wappalyzer-core": "^6.9.9"
   },
