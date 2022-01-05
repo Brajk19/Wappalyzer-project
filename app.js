@@ -1,10 +1,12 @@
+let escapeStringRegexp = require('escape-regex');
+
 const Wappalyzer = require('wappalyzer-core');
 
 const MongoClient = require('mongodb').MongoClient;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
-const URLS_PER_REQUEST = 25000;
+const URLS_PER_REQUEST = 50;
 
 const config = require('config');
 
@@ -23,7 +25,6 @@ const categories = JSON.parse(
 
 let technologies = {};
 
-const invalidExtensions = ['js', 'css', 'json', 'xml'];
 var fail = 0;
 
 //this will load from a.json to z.json (and _.json)
@@ -53,17 +54,15 @@ fs.readFile('mongoOffset.txt', 'utf8',function (err, data) {
 
 });
 
-async function addToElasticsearch(url, cms_name, cms_version) {
-    console.log(url);
-    console.log(cms_name);
-    console.log(cms_version);
-
+async function addToElasticsearch(url, cms_name, cms_version, confidence) {
     await client.index({
         index: ELASTICSEARCH_INDEX,
         body: {
             url: url,
             cms_name: cms_name,
-            cms_version: cms_version
+            cms_version: cms_version,
+            cms_version_defined: !(cms_version === undefined || cms_version === ''),
+            confidence: confidence
         }
     })
 }
@@ -78,7 +77,10 @@ async function fetchAndAnalyze() {
         let mongoDb = db.db(MONGO_DB);
 
         mongoDb.collection(MONGO_COLLECTION_URLS)
-            .find({}, { projection: { url: 1, checks: 1, _id: 0}})
+            .find(
+                { url: /^((?!\/wp-json\/).)*(?<!.css)(?<!.js)(?<!.json)(?<!.xml)(?<!\/feed\/)(?<!.woff)(?<!.woff2)(?<!xmlrpc\.php)(?<!.ttf)(?<!.thmx)$/ },
+                { projection: { url: 1, checks: 1, _id: 0}}
+            )
             .limit(URLS_PER_REQUEST)
             .sort({_id: 1})
             .skip(offset)
@@ -108,32 +110,54 @@ async function fetchAndAnalyze() {
                             return;
                         }
 
-                        try {
-                            let detections = Wappalyzer.analyze({
-                                url: url,
-                                headers: headers,
-                                //scriptSrc: ['jquery-3.0.0.js'],
-                                //cookies: {awselb: ['']},
-                                html: page
-                            });
+                        let jsCssRegex = "^" + escapeStringRegexp(url);
 
-                            let results = Wappalyzer.resolve(detections);
+                        mongoDb.collection(MONGO_COLLECTION_URLS)
+                            .find( { url: { $regex: jsCssRegex} },
+                                { projection: { url: 1, checks: 1, _id: 0} }
+                            )
+                            .toArray(function (error, result) {
+                                console.log(--help2);
+                                let scriptSrc = [];
+                                let cssSrc = [];
 
-                            for (const technology of results) {
-                                for (const category of technology.categories) {
-                                    if (category.id === CMS_CATEGORY_ID) {
-                                        console.log(technology);
-                                        addToElasticsearch(
-                                            url,
-                                            technology.name,
-                                            technology.version
-                                        ).catch(console.log);
+                                result.forEach(function (document) {
+                                    if(document.url.endsWith(".js")) {
+                                        scriptSrc.push(document.url);
                                     }
+                                    else {
+                                        cssSrc.push(document.url);
+                                    }
+                                });
+
+                                try {
+                                    let detections = Wappalyzer.analyze({
+                                        url: url,
+                                        headers: headers,
+                                        scriptSrc: scriptSrc,
+                                        //cookies: {awselb: ['']},
+                                        html: page
+                                    });
+
+                                    let results = Wappalyzer.resolve(detections);
+
+                                    for (const technology of results) {
+                                        for (const category of technology.categories) {
+                                            if (category.id === CMS_CATEGORY_ID) {
+                                                //(technology);
+                                                addToElasticsearch(
+                                                    url,
+                                                    technology.name,
+                                                    technology.version,
+                                                    technology.confidence
+                                                ).catch(console.log);
+                                            }
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.log(++fail, url);
                                 }
-                            }
-                        } catch (e) {
-                            console.log(++fail, url);
-                        }
+                            });
                     })
             });
     })
