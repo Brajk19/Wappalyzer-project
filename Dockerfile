@@ -5,6 +5,7 @@ RUN apk update  \
     && rm -rf /etc/periodic
 
 COPY . /app
+COPY ./config/default.json /root/config/default.json
 WORKDIR /app
 
 RUN wget https://raw.githubusercontent.com/eficode/wait-for/master/wait-for
