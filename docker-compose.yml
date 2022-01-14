@@ -28,11 +28,13 @@ services:
     build:
       dockerfile: Dockerfile
       context: .
-    command: sh -c './wait-for elasticsearch:9200 -t 999 -- node app.js'
     depends_on:
       - elasticsearch
     links:
       - elasticsearch
+    init: true
+    volumes:
+      - ./crontab:/var/spool/cron/crontabs/root
 
 volumes:
   esVolume:
