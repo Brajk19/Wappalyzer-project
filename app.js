@@ -6,7 +6,7 @@ const MongoClient = require('mongodb').MongoClient;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
-const URLS_PER_REQUEST = 50;
+const URLS_PER_REQUEST = 750;
 
 const config = require('config');
 
@@ -20,7 +20,7 @@ const fs = require('fs');
 let offset = undefined;
 
 const categories = JSON.parse(
-    fs.readFileSync('./node_modules/wappalyzer/categories.json')
+    fs.readFileSync('/app/node_modules/wappalyzer/categories.json')
 )
 
 let technologies = {};
@@ -35,7 +35,7 @@ for (const index of Array(27).keys()) {
         ...technologies,
         ...JSON.parse(
             fs.readFileSync(
-                './node_modules/wappalyzer/technologies/' + character + '.json'
+                '/app/node_modules/wappalyzer/technologies/' + character + '.json'
             )
         ),
     }
@@ -45,11 +45,11 @@ for (const index of Array(27).keys()) {
 Wappalyzer.setTechnologies(technologies);
 Wappalyzer.setCategories(categories);
 
-fs.readFile('mongoOffset.txt', 'utf8',function (err, data) {
+fs.readFile('/app/mongoOffset.txt', 'utf8',function (err, data) {
     offset = parseInt(data);
 
-    fs.writeFile('mongoOffset.txt', (offset + URLS_PER_REQUEST).toString(), 'utf8', function (err, data) {
-        fetchAndAnalyze();
+    fs.writeFile('/app/mongoOffset.txt', (offset + URLS_PER_REQUEST).toString(), 'utf8', async function (err, data) {
+        await fetchAndAnalyze();
     });
 
 });
@@ -78,7 +78,7 @@ async function fetchAndAnalyze() {
 
         mongoDb.collection(MONGO_COLLECTION_URLS)
             .find(
-                { url: /^((?!\/wp-json\/).)*(?<!.css)(?<!.js)(?<!.json)(?<!.xml)(?<!\/feed\/)(?<!.woff)(?<!.woff2)(?<!xmlrpc\.php)(?<!.ttf)(?<!.thmx)$/ },
+                { url: /^((?!\/wp-json\/)(?!https?:\/\/mail\.).)*(?<!\.css)(?<!\.js)(?<!\.json)(?<!\.xml)(?<!\/feed\/)(?<!\.woff)(?<!\.woff2)(?<!xmlrpc\.php)(?<!\.ttf)(?<!\.thmx)(?<!\.ico)(?<!\.png)$/ },
                 { projection: { url: 1, checks: 1, _id: 0}}
             )
             .limit(URLS_PER_REQUEST)
@@ -93,8 +93,11 @@ async function fetchAndAnalyze() {
                     return;
                 }
 
+                if(lastCheck.status_code in [301, 302]) {
+                    return;
+                }
+
                 let hash = lastCheck.hash;
-                let statusCode = lastCheck.status_code;
                 let headers = lastCheck.headers;
 
                 mongoDb.collection(MONGO_COLLECTION_PAGES)
@@ -117,15 +120,13 @@ async function fetchAndAnalyze() {
                                 { projection: { url: 1, checks: 1, _id: 0} }
                             )
                             .toArray(function (error, result) {
-                                console.log(--help2);
                                 let scriptSrc = [];
                                 let cssSrc = [];
 
                                 result.forEach(function (document) {
                                     if(document.url.endsWith(".js")) {
                                         scriptSrc.push(document.url);
-                                    }
-                                    else {
+                                    } else if (document.url.endsWith(".css")) {
                                         cssSrc.push(document.url);
                                     }
                                 });
@@ -159,7 +160,7 @@ async function fetchAndAnalyze() {
                                 }
                             });
                     })
-            });
+            }).then(() => process.exit(0));
     })
 }
 
