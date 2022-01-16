@@ -1,31 +1,28 @@
-let escapeStringRegexp = require('escape-regex');
-
-const Wappalyzer = require('wappalyzer-core');
-
 const MongoClient = require('mongodb').MongoClient;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
 const URLS_PER_REQUEST = 750;
 
+const escapeStringRegexp = require('escape-regex');
+
 const config = require('config');
 
 const { Client } = require('@elastic/elasticsearch')
 const client = new Client({ node: 'http://elasticsearch:9200' })
 
-const CMS_CATEGORY_ID = 1;
-const ELASTICSEARCH_INDEX = 'wappalyzer-index';
-
 const fs = require('fs');
 let offset = undefined;
+
+const CMS_CATEGORY_ID = 1;
+const ELASTICSEARCH_INDEX = 'wappalyzer-index';
 
 const categories = JSON.parse(
     fs.readFileSync('/app/node_modules/wappalyzer/categories.json')
 )
 
-let technologies = {};
 
-var fail = 0;
+let technologies = {}; // all techonologies wappalyzer can detect
 
 //this will load from a.json to z.json (and _.json)
 for (const index of Array(27).keys()) {
@@ -41,10 +38,12 @@ for (const index of Array(27).keys()) {
     }
 }
 
-
 Wappalyzer.setTechnologies(technologies);
 Wappalyzer.setCategories(categories);
 
+var fail = 0;
+
+//reading offset, increasing it and storing it to file
 fs.readFile('/app/mongoOffset.txt', 'utf8',function (err, data) {
     offset = parseInt(data);
 
@@ -76,10 +75,14 @@ async function fetchAndAnalyze() {
         function (err, db) {
         let mongoDb = db.db(MONGO_DB);
 
+        /*
+            fetching urls from mongo
+            some urls with specified extensions (or prefix) are filtered out
+         */
         mongoDb.collection(MONGO_COLLECTION_URLS)
             .find(
                 { url: /^((?!\/wp-json\/)(?!https?:\/\/mail\.).)*(?<!\.css)(?<!\.js)(?<!\.json)(?<!\.xml)(?<!\/feed\/)(?<!\.woff)(?<!\.woff2)(?<!xmlrpc\.php)(?<!\.ttf)(?<!\.thmx)(?<!\.ico)(?<!\.png)$/ },
-                { projection: { url: 1, checks: 1, _id: 0}}
+                { projection: { url: 1, checks: 1, _id: 0} } //fetch only url and array checks
             )
             .limit(URLS_PER_REQUEST)
             .sort({_id: 1})
@@ -100,9 +103,12 @@ async function fetchAndAnalyze() {
                 let hash = lastCheck.hash;
                 let headers = lastCheck.headers;
 
+                // fetching html of found url using given hash
                 mongoDb.collection(MONGO_COLLECTION_PAGES)
                     .find({hash: hash}, { projection: { page: 1, _id: 0}})
                     .toArray(async function (error, result) {
+
+                        //some documents with found hash do not exist
                         if(result === undefined || result[0] === undefined) {
                             return;
                         }
@@ -115,6 +121,7 @@ async function fetchAndAnalyze() {
 
                         let jsCssRegex = "^" + escapeStringRegexp(url);
 
+                        // looking for all css/js files page uses
                         mongoDb.collection(MONGO_COLLECTION_URLS)
                             .find( { url: { $regex: jsCssRegex} },
                                 { projection: { url: 1, checks: 1, _id: 0} }
@@ -142,10 +149,10 @@ async function fetchAndAnalyze() {
 
                                     let results = Wappalyzer.resolve(detections);
 
+                                    // if any detected technology is CMS, store data in elasticsearch
                                     for (const technology of results) {
                                         for (const category of technology.categories) {
                                             if (category.id === CMS_CATEGORY_ID) {
-                                                //(technology);
                                                 addToElasticsearch(
                                                     url,
                                                     technology.name,
