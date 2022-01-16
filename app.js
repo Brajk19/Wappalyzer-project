@@ -2,11 +2,13 @@ const MongoClient = require('mongodb').MongoClient;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
-const URLS_PER_REQUEST = 750;
+const URLS_PER_REQUEST = 150;
 
 const escapeStringRegexp = require('escape-regex');
 
 const config = require('config');
+
+const Wappalyzer = require('wappalyzer-core');
 
 const { Client } = require('@elastic/elasticsearch')
 const client = new Client({ node: 'http://elasticsearch:9200' })
@@ -72,103 +74,124 @@ async function fetchAndAnalyze() {
     let url = 'mongodb://' + username +':' + password + '@host.docker.internal/' + MONGO_DB + '?authSource=admin';
 
     await MongoClient.connect(url,
-        function (err, db) {
-        let mongoDb = db.db(MONGO_DB);
+        async function (err, db) {
+            let mongoDb = db.db(MONGO_DB);
 
-        /*
-            fetching urls from mongo
-            some urls with specified extensions (or prefix) are filtered out
-         */
-        mongoDb.collection(MONGO_COLLECTION_URLS)
-            .find(
-                { url: /^((?!\/wp-json\/)(?!https?:\/\/mail\.).)*(?<!\.css)(?<!\.js)(?<!\.json)(?<!\.xml)(?<!\/feed\/)(?<!\.woff)(?<!\.woff2)(?<!xmlrpc\.php)(?<!\.ttf)(?<!\.thmx)(?<!\.ico)(?<!\.png)$/ },
-                { projection: { url: 1, checks: 1, _id: 0} } //fetch only url and array checks
-            )
-            .limit(URLS_PER_REQUEST)
-            .sort({_id: 1})
-            .skip(offset)
-            .forEach(function (document) {
+            /*
+                fetching urls from mongo
+                some urls with specified extensions (or prefix) are filtered out
+             */
+            console.log(offset);
+            const urls = await mongoDb.collection(MONGO_COLLECTION_URLS)
+                .find(
+                    { url: /^(?!https?:\/\/mail\.).*(\.hr|\.com|\.net)\/?$/ },
+                    //{url: /^((?!\/wp-json\/)(?!https?:\/\/mail\.).)*(?<!\.css)(?<!\.js)(?<!\.json)(?<!\.xml)(?<!\/feed\/)(?<!\.woff)(?<!\.woff2)(?<!xmlrpc\.php)(?<!\.ttf)(?<!\.thmx)(?<!\.ico)(?<!\.png)$/},
+                    { projection: { url: 1, checks: 1, _id: 0 } } //fetch only url and array checks
+                )
+                .limit(URLS_PER_REQUEST)
+                .sort({url: 1})
+                .skip(offset)
+                .toArray();
+
+            for (const document of urls) {
                 let checks = document.checks;
                 let url = document.url;
                 let lastCheck = checks[Object.keys(checks).length - 1];
 
-                if(checks === undefined || url === undefined || lastCheck === undefined) {
-                    return;
+                if (checks === undefined || url === undefined || lastCheck === undefined) {
+                    continue;
                 }
 
-                if(lastCheck.status_code in [301, 302]) {
-                    return;
+                if (lastCheck.status_code in [301, 302]) {
+                    continue;
                 }
 
                 let hash = lastCheck.hash;
                 let headers = lastCheck.headers;
 
-                // fetching html of found url using given hash
-                mongoDb.collection(MONGO_COLLECTION_PAGES)
-                    .find({hash: hash}, { projection: { page: 1, _id: 0}})
-                    .toArray(async function (error, result) {
+                const doc = await mongoDb.collection(MONGO_COLLECTION_PAGES)
+                        .findOne({hash: hash}, {projection: {page: 1, _id: 0}});
 
-                        //some documents with found hash do not exist
-                        if(result === undefined || result[0] === undefined) {
-                            return;
+                if(doc === undefined || doc === null) {
+                    continue;
+                }
+
+                let page = doc.page;
+
+                let prefixRegex = "^" + escapeStringRegexp(url);
+
+                const docs = await mongoDb.collection(MONGO_COLLECTION_URLS)
+                    .find({ url: { $regex: prefixRegex } },
+                        { projection: { url: 1, checks: 1, _id: 0 } }
+                    )
+                    .toArray();
+
+                let scriptSrc = [];     //urls of js files
+                let cssSrc = [];        //urls of css files
+                let scripts = [];       //js source code
+                let css = [];           //css source code
+
+                for(const doc of docs) {
+                    if(doc.url.endsWith(".js")) {
+                        scriptSrc[doc.url] = doc.checks[Object.keys(doc.checks).length - 1].hash;
+                    } else if(doc.url.endsWith(".css")) {
+                        cssSrc.push(doc.checks[Object.keys(doc.checks).length - 1].hash);
+                    }
+                }
+
+                const jsFiles =
+                    await mongoDb.collection(MONGO_COLLECTION_PAGES)
+                        .find(
+                            { hash: { $in: Object.values(scriptSrc) }},
+                            { projection: { page: 1, _id: 0} })
+                        .toArray();
+
+                for(const file of jsFiles) {
+                    scripts.push(file.page);
+                }
+
+
+                const cssFiles =
+                    await mongoDb.collection(MONGO_COLLECTION_PAGES)
+                        .find(
+                            { hash: { $in: Object.values(cssSrc) }},
+                            { projection: { page: 1, _id: 0} })
+                        .toArray();
+
+                for(const file of cssFiles) {
+                    css.push(file.page);
+                }
+
+                try {
+                    const detections = await Wappalyzer.analyze({
+                        url: url,
+                        headers: headers,
+                        scriptSrc: Object.keys(scriptSrc),
+                        scripts: scripts,
+                        css: css,
+                        //cookies: {awselb: ['']},
+                        html: page
+                    });
+
+                    let results = await Wappalyzer.resolve(detections);
+
+                    // if any detected technology is CMS, store data in elasticsearch
+                    for (const technology of results) {
+                        for (const category of technology.categories) {
+                            if (category.id === CMS_CATEGORY_ID) {
+                                await addToElasticsearch(
+                                    url,
+                                    technology.name,
+                                    technology.version,
+                                    technology.confidence
+                                ).catch(console.log);
+                            }
                         }
-
-                        let page = result[0].page;
-
-                        if(page === undefined) {
-                            return;
-                        }
-
-                        let jsCssRegex = "^" + escapeStringRegexp(url);
-
-                        // looking for all css/js files page uses
-                        mongoDb.collection(MONGO_COLLECTION_URLS)
-                            .find( { url: { $regex: jsCssRegex} },
-                                { projection: { url: 1, checks: 1, _id: 0} }
-                            )
-                            .toArray(function (error, result) {
-                                let scriptSrc = [];
-                                let cssSrc = [];
-
-                                result.forEach(function (document) {
-                                    if(document.url.endsWith(".js")) {
-                                        scriptSrc.push(document.url);
-                                    } else if (document.url.endsWith(".css")) {
-                                        cssSrc.push(document.url);
-                                    }
-                                });
-
-                                try {
-                                    let detections = Wappalyzer.analyze({
-                                        url: url,
-                                        headers: headers,
-                                        scriptSrc: scriptSrc,
-                                        //cookies: {awselb: ['']},
-                                        html: page
-                                    });
-
-                                    let results = Wappalyzer.resolve(detections);
-
-                                    // if any detected technology is CMS, store data in elasticsearch
-                                    for (const technology of results) {
-                                        for (const category of technology.categories) {
-                                            if (category.id === CMS_CATEGORY_ID) {
-                                                addToElasticsearch(
-                                                    url,
-                                                    technology.name,
-                                                    technology.version,
-                                                    technology.confidence
-                                                ).catch(console.log);
-                                            }
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.log(++fail, url);
-                                }
-                            });
-                    })
-            }).then(() => process.exit(0));
-    })
+                    }
+                } catch (e) {
+                    console.log(++fail, url);
+                }
+            }
+            process.exit(0);
+        })
 }
-
-
