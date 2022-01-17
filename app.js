@@ -2,7 +2,7 @@ const MongoClient = require('mongodb').MongoClient;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
-const URLS_PER_REQUEST = 150;
+const URLS_PER_REQUEST = 125;
 
 const escapeStringRegexp = require('escape-regex');
 
@@ -46,13 +46,9 @@ Wappalyzer.setCategories(categories);
 var fail = 0;
 
 //reading offset, increasing it and storing it to file
-fs.readFile('/app/mongoOffset.txt', 'utf8',function (err, data) {
+fs.readFile('/app/mongoOffset.txt', 'utf8',async function (err, data) {
     offset = parseInt(data);
-
-    fs.writeFile('/app/mongoOffset.txt', (offset + URLS_PER_REQUEST).toString(), 'utf8', async function (err, data) {
-        await fetchAndAnalyze();
-    });
-
+    await fetchAndAnalyze();
 });
 
 async function addToElasticsearch(url, cms_name, cms_version, confidence) {
@@ -192,6 +188,9 @@ async function fetchAndAnalyze() {
                     console.log(++fail, url);
                 }
             }
-            process.exit(0);
+
+            fs.writeFile('/app/mongoOffset.txt', (offset + URLS_PER_REQUEST).toString(), 'utf8', async function (err, data) {
+                process.exit(0);
+            });
         })
 }
