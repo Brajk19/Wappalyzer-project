@@ -2,7 +2,7 @@ const MongoClient = require('mongodb').MongoClient;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
-const URLS_PER_REQUEST = 125;
+const URLS_PER_REQUEST = 500;
 
 const escapeStringRegexp = require('escape-regex');
 
@@ -51,6 +51,46 @@ fs.readFile('/app/mongoOffset.txt', 'utf8',async function (err, data) {
     await fetchAndAnalyze();
 });
 
+function extractMeta(html) {
+    const regex = /<meta name="(?<name>[^"]*)" content="(?<content>[^"]*)"\/?>/gi;
+    const matches = [...html.matchAll(regex)];
+
+    let meta = {};
+
+    for(const match of matches) {
+        const name = match.groups.name;
+        const content = match.groups.content;
+
+        if(name in meta) {
+            meta[name].push(content);
+        } else {
+            meta[name] = [content];
+        }
+    }
+
+    return meta;
+}
+
+function transformHeaders(headersRaw) {
+    // Wappalyzer requires that all values inside object are in array
+
+    let headers = {};
+
+    if(headersRaw === undefined || headersRaw === null) {
+        return headers;
+    }
+
+    for(const key of Object.keys(headersRaw)) {
+        if(!Array.isArray(headersRaw[key])) {
+            headers[key] = [headersRaw[key]];
+        } else {
+            headers[key] = headersRaw[key];
+        }
+    }
+
+    return headers;
+}
+
 async function addToElasticsearch(url, cms_name, cms_version, confidence) {
     await client.index({
         index: ELASTICSEARCH_INDEX,
@@ -85,7 +125,7 @@ async function fetchAndAnalyze() {
                     { projection: { url: 1, checks: 1, _id: 0 } } //fetch only url and array checks
                 )
                 .limit(URLS_PER_REQUEST)
-                .sort({url: 1})
+                .sort({_id: 1})
                 .skip(offset)
                 .toArray();
 
@@ -103,7 +143,7 @@ async function fetchAndAnalyze() {
                 }
 
                 let hash = lastCheck.hash;
-                let headers = lastCheck.headers;
+                let headers = transformHeaders(lastCheck.headers);
 
                 const doc = await mongoDb.collection(MONGO_COLLECTION_PAGES)
                         .findOne({hash: hash}, {projection: {page: 1, _id: 0}});
@@ -159,13 +199,13 @@ async function fetchAndAnalyze() {
                 }
 
                 try {
-                    const detections = await Wappalyzer.analyze({
+                    const detections = Wappalyzer.analyze({
                         url: url,
                         headers: headers,
                         scriptSrc: Object.keys(scriptSrc),
                         scripts: scripts,
                         css: css,
-                        //cookies: {awselb: ['']},
+                        meta: extractMeta(page),
                         html: page
                     });
 

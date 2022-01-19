@@ -1,4 +1,4 @@
 0 0 15 * * echo $(npm --prefix /app update wappalyzer@latest)
 10 0 15 * * echo $(npm --prefix /app update wappalyzer-core@latest)
-* * * * * echo $(time node /app/app.js)
+*/20 * * * * echo $(time node /app/app.js)
 
