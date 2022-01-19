@@ -99,6 +99,29 @@ function transformHeaders(headersRaw) {
 }
 
 async function addToElasticsearch(url, cms_name, cms_version, confidence) {
+    // first we check if there is already this url in elasticsearch and delete it if it exists
+    const search = await client.search(
+        {
+            index: ELASTICSEARCH_INDEX,
+            body: {
+                query: {
+                    multi_match : {
+                        query: url,
+                        fields: ['url'],
+                        type: 'phrase'
+                    }
+                }
+            }
+        });
+
+    for(const doc of search.body.hits.hits) { // there should be only one or zero, but it's looping just in case
+        await client.delete({
+            index: ELASTICSEARCH_INDEX,
+            id: doc._id
+        });
+    }
+
+    //adding entry
     await client.index({
         index: ELASTICSEARCH_INDEX,
         body: {
