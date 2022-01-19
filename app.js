@@ -40,6 +40,13 @@ for (const index of Array(27).keys()) {
     }
 }
 
+//filter out all non CMS techonologies
+for(const key of Object.keys(technologies)) {
+    if(!technologies[key].cats.includes(1)){
+        delete technologies[key];
+    }
+}
+
 Wappalyzer.setTechnologies(technologies);
 Wappalyzer.setCategories(categories);
 
