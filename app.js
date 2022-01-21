@@ -51,13 +51,15 @@ Wappalyzer.setTechnologies(technologies);
 Wappalyzer.setCategories(categories);
 
 
-//reading offset, increasing it and storing it to file
+//reading offset and starting the main function
 fs.readFile('/app/mongoOffset.txt', 'utf8',async function (err, data) {
     offset = parseInt(data);
     await fetchAndAnalyze();
 });
 
 function extractMeta(html) {
+    //meta data needs to be parsed from html because Wappalyzer requires it as an object
+    //not every mata data is in this format as this regex, so this can probably be improved
     const regex = /<meta name="(?<name>[^"]*)" content="(?<content>[^"]*)"\/?>/gi;
     const matches = [...html.matchAll(regex)];
 
@@ -174,6 +176,7 @@ async function fetchAndAnalyze() {
                 let hash = lastCheck.hash;
                 let headers = transformHeaders(lastCheck.headers);
 
+                //fetch html source code using hash
                 const doc = await mongoDb.collection(MONGO_COLLECTION_PAGES)
                         .findOne({hash: hash}, {projection: {page: 1, _id: 0}});
 
@@ -183,8 +186,14 @@ async function fetchAndAnalyze() {
 
                 let page = doc.page;
 
+                /*
+                    this will fetch all pages for url
+                    e.g. for "www.website.com" this will get
+                    "www.website.com/help"
+                    "www.website.com/file.js"
+                    "www.website.com/file.css"
+                 */
                 let prefixRegex = "^" + escapeStringRegexp(url);
-
                 const docs = await mongoDb.collection(MONGO_COLLECTION_URLS)
                     .find({ url: { $regex: prefixRegex } },
                         { projection: { url: 1, checks: 1, _id: 0 } }
@@ -196,6 +205,8 @@ async function fetchAndAnalyze() {
                 let scripts = [];       //js source code
                 let css = [];           //css source code
 
+
+                //filter out js and css files
                 for(const doc of docs) {
                     if(doc.url.endsWith(".js")) {
                         scriptSrc[doc.url] = doc.checks[Object.keys(doc.checks).length - 1].hash;
@@ -204,6 +215,7 @@ async function fetchAndAnalyze() {
                     }
                 }
 
+                //fetching js source code
                 const jsFiles =
                     await mongoDb.collection(MONGO_COLLECTION_PAGES)
                         .find(
@@ -215,7 +227,7 @@ async function fetchAndAnalyze() {
                     scripts.push(file.page);
                 }
 
-
+                //fetching css source code
                 const cssFiles =
                     await mongoDb.collection(MONGO_COLLECTION_PAGES)
                         .find(
@@ -228,6 +240,7 @@ async function fetchAndAnalyze() {
                 }
 
                 try {
+                    // Wappalyzer analysis
                     const detections = Wappalyzer.analyze({
                         url: url,
                         headers: headers,
@@ -240,7 +253,10 @@ async function fetchAndAnalyze() {
 
                     let results = await Wappalyzer.resolve(detections);
 
-                    // if any detected technology is CMS, store data in elasticsearch
+                    /*
+                        if detected technology is CMS, store data in elasticsearch
+                        every result should be CMS, but to make sure id is checked
+                     */
                     for (const technology of results) {
                         for (const category of technology.categories) {
                             if (category.id === CMS_CATEGORY_ID) {
@@ -258,6 +274,12 @@ async function fetchAndAnalyze() {
                 }
             }
 
+            /*
+                after every fetched url from mongo is processed, only then mongoOffset is increased
+                this can sometimes make script fetch same urls multiple times if it crashes for some reason
+                alternative can be to increase and write it everytime page is succesfully analyzed
+                this is something that will be tried and tested in future
+             */
             fs.writeFile('/app/mongoOffset.txt', (offset + URLS_PER_REQUEST).toString(), 'utf8', async function (err, data) {
                 process.exit(0);
             });
