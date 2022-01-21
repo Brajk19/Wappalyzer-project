@@ -50,7 +50,6 @@ for(const key of Object.keys(technologies)) {
 Wappalyzer.setTechnologies(technologies);
 Wappalyzer.setCategories(categories);
 
-var fail = 0;
 
 //reading offset, increasing it and storing it to file
 fs.readFile('/app/mongoOffset.txt', 'utf8',async function (err, data) {
@@ -145,13 +144,11 @@ async function fetchAndAnalyze() {
 
             /*
                 fetching urls from mongo
-                some urls with specified extensions (or prefix) are filtered out
              */
             console.log(offset);
             const urls = await mongoDb.collection(MONGO_COLLECTION_URLS)
                 .find(
                     { url: /^(?!https?:\/\/mail\.).*(\.hr|\.com|\.net)\/?$/ },
-                    //{url: /^((?!\/wp-json\/)(?!https?:\/\/mail\.).)*(?<!\.css)(?<!\.js)(?<!\.json)(?<!\.xml)(?<!\/feed\/)(?<!\.woff)(?<!\.woff2)(?<!xmlrpc\.php)(?<!\.ttf)(?<!\.thmx)(?<!\.ico)(?<!\.png)$/},
                     { projection: { url: 1, checks: 1, _id: 0 } } //fetch only url and array checks
                 )
                 .limit(URLS_PER_REQUEST)
@@ -168,8 +165,10 @@ async function fetchAndAnalyze() {
                     continue;
                 }
 
-                if (lastCheck.status_code in [301, 302]) {
-                    continue;
+                if (lastCheck.status_code !== undefined && lastCheck.status_code !== null) {
+                    if(Number(lastCheck.status_code) >= 300) {
+                        continue;
+                    }
                 }
 
                 let hash = lastCheck.hash;
@@ -255,7 +254,7 @@ async function fetchAndAnalyze() {
                         }
                     }
                 } catch (e) {
-                    console.log(++fail, url);
+                    console.log(url);
                 }
             }
 
