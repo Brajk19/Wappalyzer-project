@@ -4,6 +4,7 @@ const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
 const URLS_PER_REQUEST = 500;
 
+const HTMLParser = require('node-html-parser');
 const escapeStringRegexp = require('escape-regex');
 
 const config = require('config');
@@ -59,20 +60,19 @@ fs.readFile('/app/mongoOffset.txt', 'utf8',async function (err, data) {
 
 function extractMeta(html) {
     //meta data needs to be parsed from html because Wappalyzer requires it as an object
-    //not every mata data is in this format as this regex, so this can probably be improved
-    const regex = /<meta name="(?<name>[^"]*)" content="(?<content>[^"]*)"\/?>/gi;
-    const matches = [...html.matchAll(regex)];
+    const metaTags = HTMLParser.parse(html).querySelectorAll('meta');
 
     let meta = {};
+    for(const metaTag of metaTags) {
+        const name = metaTag.getAttribute('name');
+        const content = metaTag.getAttribute('content');
 
-    for(const match of matches) {
-        const name = match.groups.name;
-        const content = match.groups.content;
-
-        if(name in meta) {
-            meta[name].push(content);
-        } else {
-            meta[name] = [content];
+        if(name !== undefined && content !== undefined) {
+            if(name in meta) {
+                meta[name].push(content);
+            } else {
+                meta[name] = [content];
+            }
         }
     }
 
