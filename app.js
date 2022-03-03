@@ -150,7 +150,7 @@ async function fetchAndAnalyze() {
             console.log(offset);
             const urls = await mongoDb.collection(MONGO_COLLECTION_URLS)
                 .find(
-                    { url: /^(?!https?:\/\/mail\.).*(\.hr|\.com|\.net)\/?$/ },
+                    { },
                     { projection: { url: 1, checks: 1, _id: 0 } } //fetch only url and array checks
                 )
                 .limit(URLS_PER_REQUEST)
@@ -158,9 +158,15 @@ async function fetchAndAnalyze() {
                 .skip(offset)
                 .toArray();
 
+            const urlRegex = /^(?!https?:\/\/mail\.).*(\.hr|\.com|\.net)\/?$/;
             for (const document of urls) {
-                let checks = document.checks;
                 let url = document.url;
+
+                if(urlRegex.test(url) === false) {
+                    continue;
+                }
+
+                let checks = document.checks;
                 let lastCheck = checks[Object.keys(checks).length - 1];
 
                 if (checks === undefined || url === undefined || lastCheck === undefined) {
