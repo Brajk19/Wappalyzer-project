@@ -24,6 +24,7 @@
     "config": "^3.3.6",
     "escape-regex": "^1.0.7",
     "mongodb": "^4.2.2",
+    "node-html-parser": "^5.2.0",
     "wappalyzer": "^6.9.2",
     "wappalyzer-core": "^6.9.9"
   },
