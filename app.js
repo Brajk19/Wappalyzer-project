@@ -43,13 +43,6 @@ for (const index of Array(27).keys()) {
     }
 }
 
-//filter out all non CMS techonologies
-for(const key of Object.keys(technologies)) {
-    if(!technologies[key].cats.includes(1)){
-        delete technologies[key];
-    }
-}
-
 Wappalyzer.setTechnologies(technologies);
 Wappalyzer.setCategories(categories);
 
@@ -267,10 +260,7 @@ async function fetchAndAnalyze() {
 
                     let results = await Wappalyzer.resolve(detections);
 
-                    /*
-                        if detected technology is CMS, store data in elasticsearch
-                        every result should be CMS, but to make sure id is checked
-                     */
+                    //if detected technology is CMS, store data in elasticsearch
                     for (const technology of results) {
                         for (const category of technology.categories) {
                             if (category.id === CMS_CATEGORY_ID) {
