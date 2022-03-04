@@ -1,8 +1,10 @@
 const MongoClient = require('mongodb').MongoClient;
+const ObjectId = require('mongodb').ObjectId;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
 const URLS_PER_REQUEST = 500;
+const START_ID = '603a6c5139ec133a07a37e2a';
 
 const HTMLParser = require('node-html-parser');
 const escapeStringRegexp = require('escape-regex');
@@ -15,7 +17,7 @@ const { Client } = require('@elastic/elasticsearch')
 const client = new Client({ node: 'http://elasticsearch:9200' })
 
 const fs = require('fs');
-let offset = undefined;
+let startId = undefined;
 
 const CMS_CATEGORY_ID = 1;
 const ELASTICSEARCH_INDEX = 'wappalyzer-index';
@@ -53,8 +55,8 @@ Wappalyzer.setCategories(categories);
 
 
 //reading offset and starting the main function
-fs.readFile('/app/mongoOffset.txt', 'utf8',async function (err, data) {
-    offset = parseInt(data);
+fs.readFile('/app/lastProcessedObjectId.txt', 'utf8',async function (err, data) {
+    startId = data;
     await fetchAndAnalyze();
 });
 
@@ -147,16 +149,22 @@ async function fetchAndAnalyze() {
             /*
                 fetching urls from mongo
              */
-            console.log(offset);
+            console.log(startId);
             const urls = await mongoDb.collection(MONGO_COLLECTION_URLS)
                 .find(
-                    { },
-                    { projection: { url: 1, checks: 1, _id: 0 } } //fetch only url and array checks
+                    { _id: { $gt: new ObjectId(startId) } },
+                    { projection: { url: 1, checks: 1, _id: 1 } } //fetch id, url and array checks
                 )
                 .limit(URLS_PER_REQUEST)
-                .sort({_id: 1})
-                .skip(offset)
+                .sort({ _id: 1 })
                 .toArray();
+
+            if (urls.length === 0) {
+                // all documents have been processed, going back to beginning
+                startId = START_ID;
+            } else {
+                startId = urls[urls.length - 1]._id; // last (largest) processed ID
+            }
 
             const urlRegex = /^(?!https?:\/\/mail\.).*(\.hr|\.com|\.net)\/?$/;
             for (const document of urls) {
@@ -277,16 +285,11 @@ async function fetchAndAnalyze() {
                     }
                 } catch (e) {
                     console.log(url);
+                    console.log(e);
                 }
             }
 
-            /*
-                after every fetched url from mongo is processed, only then mongoOffset is increased
-                this can sometimes make script fetch same urls multiple times if it crashes for some reason
-                alternative can be to increase and write it everytime page is succesfully analyzed
-                this is something that will be tried and tested in future
-             */
-            fs.writeFile('/app/mongoOffset.txt', (offset + URLS_PER_REQUEST).toString(), 'utf8', async function (err, data) {
+            fs.writeFile('/app/lastProcessedObjectId.txt', startId.toString(), 'utf8', async function (err, data) {
                 process.exit(0);
             });
         })
