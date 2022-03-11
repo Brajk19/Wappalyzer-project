@@ -65,8 +65,10 @@ function extractMeta(html) {
         if(name !== undefined && content !== undefined) {
             if(name in meta) {
                 meta[name].push(content);
+                meta[name.toLowerCase()].push(content);
             } else {
                 meta[name] = [content];
+                meta[name.toLowerCase()] = [content];
             }
         }
     }
@@ -86,8 +88,10 @@ function transformHeaders(headersRaw) {
     for(const key of Object.keys(headersRaw)) {
         if(!Array.isArray(headersRaw[key])) {
             headers[key] = [headersRaw[key]];
+            headers[key.toLowerCase()] = [headersRaw[key]];
         } else {
             headers[key] = headersRaw[key];
+            headers[key.toLowerCase()] = headersRaw[key];
         }
     }
 
@@ -200,7 +204,7 @@ async function fetchAndAnalyze() {
                     "www.website.com/file.js"
                     "www.website.com/file.css"
                  */
-                let prefixRegex = "^" + escapeStringRegexp(url);
+                let prefixRegex = "^" + escapeStringRegexp(url);    // TODO change this with scripts/css from mongo document
                 const docs = await mongoDb.collection(MONGO_COLLECTION_URLS)
                     .find({ url: { $regex: prefixRegex } },
                         { projection: { url: 1, checks: 1, _id: 0 } }
