@@ -76,6 +76,22 @@ function extractMeta(html) {
     return meta;
 }
 
+function extractScriptSrc(html) {
+    const scriptTags = HTMLParser.parse(html).querySelectorAll('script');
+
+    let scriptSrc = [];
+
+    for (const tag of scriptTags) {
+        const src = tag.getAttribute('src');
+
+        if(src !== undefined) {
+            scriptSrc.push(src);
+        }
+    }
+
+    return scriptSrc;
+}
+
 function transformHeaders(headersRaw) {
     // Wappalyzer requires that all values inside object are in array
 
@@ -238,6 +254,9 @@ async function fetchAndAnalyze() {
                     scripts.push(file.page);
                 }
 
+                scriptSrc = Object.keys(scriptSrc).concat(extractScriptSrc(page)); // merging with scripts extracted from <script> tags
+                scriptSrc = Array.from(new Set(scriptSrc)); // unique values
+
                 //fetching css source code
                 const cssFiles =
                     await mongoDb.collection(MONGO_COLLECTION_PAGES)
@@ -255,7 +274,7 @@ async function fetchAndAnalyze() {
                     const detections = Wappalyzer.analyze({
                         url: url,
                         headers: headers,
-                        scriptSrc: Object.keys(scriptSrc),
+                        scriptSrc: scriptSrc,
                         scripts: scripts,
                         css: css,
                         meta: extractMeta(page),
