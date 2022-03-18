@@ -76,15 +76,19 @@ function extractMeta(html) {
     return meta;
 }
 
-function extractScriptSrc(html) {
+function extractScriptSrc(html, website) {
     const scriptTags = HTMLParser.parse(html).querySelectorAll('script');
 
     let scriptSrc = [];
 
     for (const tag of scriptTags) {
-        const src = tag.getAttribute('src');
+        let src = tag.getAttribute('src');
 
         if(src !== undefined) {
+            if(src[0] === '/') {
+                src = website + src;
+            }
+
             scriptSrc.push(src);
         }
     }
@@ -205,13 +209,20 @@ async function fetchAndAnalyze() {
 
                 //fetch html source code using hash
                 const doc = await mongoDb.collection(MONGO_COLLECTION_PAGES)
-                        .findOne({hash: hash}, {projection: {page: 1, _id: 0}});
+                        .findOne(
+                            { hash: hash },
+                            { projection: { page: 1, checks:1, _id: 0 } }
+                        );
 
                 if(doc === undefined || doc === null) {
                     continue;
                 }
 
                 let page = doc.page;
+
+                let crawledScripts = new Set(); // TODO - fill with crawled_links from doc
+                let scriptHashes = new Set();
+                let crawledLinks = new Set();
 
                 /*
                     this will fetch all pages for url
@@ -254,7 +265,7 @@ async function fetchAndAnalyze() {
                     scripts.push(file.page);
                 }
 
-                scriptSrc = Object.keys(scriptSrc).concat(extractScriptSrc(page)); // merging with scripts extracted from <script> tags
+                scriptSrc = Object.keys(scriptSrc).concat(extractScriptSrc(page, url)); // merging with scripts extracted from <script> tags
                 scriptSrc = Array.from(new Set(scriptSrc)); // unique values
 
                 //fetching css source code
