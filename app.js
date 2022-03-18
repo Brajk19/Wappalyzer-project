@@ -7,7 +7,6 @@ const URLS_PER_REQUEST = 500;
 const START_ID = '603a6c5139ec133a07a37e2a';
 
 const HTMLParser = require('node-html-parser');
-const escapeStringRegexp = require('escape-regex');
 
 const config = require('config');
 
@@ -119,6 +118,14 @@ function transformHeaders(headersRaw) {
 }
 
 async function addToElasticsearch(url, cms_name, cms_version, confidence) {
+
+    /*
+        TODO - future plans
+        timestamp of check will be added
+        new entry will be added to elasticsearch only if (url, cms_name and cms_version are unique)
+        that way we can differentiate when analysis found cms without version, and then later with version
+     */
+
     // first we check if there is already this url in elasticsearch and delete it if it exists
     const search = await client.search(
         {
@@ -220,44 +227,20 @@ async function fetchAndAnalyze() {
 
                 let page = doc.page;
 
-                let crawledScripts = new Set(); // TODO - fill with crawled_links from doc
-                let scriptHashes = new Set();
-                let crawledLinks = new Set();
+                let lastHtmlCheck = doc.checks[Object.keys(doc.checks).length - 1];
 
-                /*
-                    this will fetch all pages for url
-                    e.g. for "www.website.com" this will get
-                    "www.website.com/help"
-                    "www.website.com/file.js"
-                    "www.website.com/file.css"
-                 */
-                let prefixRegex = "^" + escapeStringRegexp(url);    // TODO change this with scripts/css from mongo document
-                const docs = await mongoDb.collection(MONGO_COLLECTION_URLS)
-                    .find({ url: { $regex: prefixRegex } },
-                        { projection: { url: 1, checks: 1, _id: 0 } }
-                    )
-                    .toArray();
+                let scriptSrc = Object.keys(lastHtmlCheck.crawled_links.scripts);       //urls of js files
+                let scriptHashes = Object.values(lastHtmlCheck.crawled_links.scripts);  //hash of document with js code
+                let linkHashes = Object.values(lastHtmlCheck.crawled_links.links);      //hash of document with css code
 
-                let scriptSrc = [];     //urls of js files
-                let cssSrc = [];        //urls of css files
-                let scripts = [];       //js source code
-                let css = [];           //css source code
-
-
-                //filter out js and css files
-                for(const doc of docs) {
-                    if(doc.url.endsWith(".js")) {
-                        scriptSrc[doc.url] = doc.checks[Object.keys(doc.checks).length - 1].hash;
-                    } else if(doc.url.endsWith(".css")) {
-                        cssSrc.push(doc.checks[Object.keys(doc.checks).length - 1].hash);
-                    }
-                }
+                let scripts = [];   //js source code
+                let css = [];       //css source code
 
                 //fetching js source code
                 const jsFiles =
                     await mongoDb.collection(MONGO_COLLECTION_PAGES)
                         .find(
-                            { hash: { $in: Object.values(scriptSrc) }},
+                            { hash: { $in: scriptHashes }},
                             { projection: { page: 1, _id: 0} })
                         .toArray();
 
@@ -265,14 +248,14 @@ async function fetchAndAnalyze() {
                     scripts.push(file.page);
                 }
 
-                scriptSrc = Object.keys(scriptSrc).concat(extractScriptSrc(page, url)); // merging with scripts extracted from <script> tags
+                scriptSrc = scriptSrc.concat(extractScriptSrc(page, url)); // merging with scripts extracted from <script> tags
                 scriptSrc = Array.from(new Set(scriptSrc)); // unique values
 
                 //fetching css source code
                 const cssFiles =
                     await mongoDb.collection(MONGO_COLLECTION_PAGES)
                         .find(
-                            { hash: { $in: Object.values(cssSrc) }},
+                            { hash: { $in: linkHashes }},
                             { projection: { page: 1, _id: 0} })
                         .toArray();
 
