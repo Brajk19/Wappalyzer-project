@@ -229,9 +229,15 @@ async function fetchAndAnalyze() {
 
                 let lastHtmlCheck = doc.checks[Object.keys(doc.checks).length - 1];
 
-                let scriptSrc = Object.keys(lastHtmlCheck.crawled_links.scripts);       //urls of js files
-                let scriptHashes = Object.values(lastHtmlCheck.crawled_links.scripts);  //hash of document with js code
-                let linkHashes = Object.values(lastHtmlCheck.crawled_links.links);      //hash of document with css code
+                let scriptSrc = [];
+                let scriptHashes = [];
+                let linkHashes = [];
+
+                if(lastHtmlCheck.crawled_links !== undefined) {
+                    scriptSrc = Object.keys(lastHtmlCheck.crawled_links.scripts);       //urls of js files
+                    scriptHashes = Object.values(lastHtmlCheck.crawled_links.scripts);  //hash of document with js code
+                    linkHashes = Object.values(lastHtmlCheck.crawled_links.links);      //hash of document with css code
+                }
 
                 let scripts = [];   //js source code
                 let css = [];       //css source code
