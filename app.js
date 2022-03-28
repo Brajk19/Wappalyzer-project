@@ -3,7 +3,7 @@ const ObjectId = require('mongodb').ObjectId;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
-const URLS_PER_REQUEST = 500;
+const URLS_PER_REQUEST = 1000;
 const START_ID = '603a6c5139ec133a07a37e2a';
 
 const HTMLParser = require('node-html-parser');
@@ -19,7 +19,7 @@ const fs = require('fs');
 let startId = undefined;
 
 const CMS_CATEGORY_ID = 1;
-const ELASTICSEARCH_INDEX = 'wappalyzer-index';
+const ELASTICSEARCH_INDEX = 'wappalyzer-index-new-structure-test';
 
 const categories = JSON.parse(
     fs.readFileSync('/app/node_modules/wappalyzer/categories.json')
@@ -117,48 +117,72 @@ function transformHeaders(headersRaw) {
     return headers;
 }
 
-async function addToElasticsearch(url, cms_name, cms_version, confidence) {
+async function addToElasticsearch(url, cms_name, cms_version, confidence, timestamp) {
+    url = url.trim();
 
-    /*
-        TODO - future plans
-        timestamp of check will be added
-        new entry will be added to elasticsearch only if (url, cms_name and cms_version are unique)
-        that way we can differentiate when analysis found cms without version, and then later with version
-     */
-
-    // first we check if there is already this url in elasticsearch and delete it if it exists
-    const search = await client.search(
-        {
-            index: ELASTICSEARCH_INDEX,
-            body: {
-                query: {
-                    multi_match : {
-                        query: url,
-                        fields: ['url'],
-                        type: 'phrase'
-                    }
-                }
-            }
-        });
-
-    for(const doc of search.body.hits.hits) { // there should be only one or zero, but it's looping just in case
-        await client.delete({
-            index: ELASTICSEARCH_INDEX,
-            id: doc._id
-        });
+    // sometimes there are two version of same website
+    // e.g 'www.fer.hr' and 'www.fer.hr/'
+    if(url[url.length - 1] === '/'){
+        url = url.slice(0, -1);
     }
 
-    //adding entry
-    await client.index({
-        index: ELASTICSEARCH_INDEX,
-        body: {
-            url: url,
+    try {
+        const document = await client.get(
+            {
+                index: ELASTICSEARCH_INDEX,
+                id: url
+            }
+        )
+
+        let data = document.body['_source'];
+
+        data['wappalyzer_checks'][timestamp] = {
             cms_name: cms_name,
             cms_version: cms_version,
             cms_version_defined: !(cms_version === undefined || cms_version === ''),
             confidence: confidence
+        };
+
+        if (timestamp > data['latest_timestamp']) {
+            //updating latest data
+            data['latest_timestamp'] = timestamp;
+            data['latest_cms_name'] = cms_name;
+            data['latest_cms_version'] = cms_version;
+            data['latest_cms_version_defined'] = !(cms_version === undefined || cms_version === '');
         }
-    })
+
+        // updating elasticsearch document
+        await client.index({
+            index: ELASTICSEARCH_INDEX,
+            id: url,
+            body: data
+        });
+
+
+    } catch (e) {
+        if (e.statusCode === 404) {
+            //adding entry
+            await client.index({
+                index: ELASTICSEARCH_INDEX,
+                id: url,
+                body: {
+                    url: url,
+                    wappalyzer_checks: {
+                        timestamp: {
+                            cms_name: cms_name,
+                            cms_version: cms_version,
+                            cms_version_defined: !(cms_version === undefined || cms_version === ''),
+                            confidence: confidence
+                        }
+                    },
+                    latest_timestamp: timestamp,
+                    latest_cms_name: cms_name,
+                    latest_cms_version: cms_version,
+                    latest_cms_version_defined: !(cms_version === undefined || cms_version === '')
+                }
+            })
+        }
+    }
 }
 
 async function fetchAndAnalyze() {
@@ -200,6 +224,7 @@ async function fetchAndAnalyze() {
 
                 let checks = document.checks;
                 let lastCheck = checks[Object.keys(checks).length - 1];
+                // TODO implement iterating over checks to find last non analyzed
 
                 if (checks === undefined || url === undefined || lastCheck === undefined) {
                     continue;
@@ -211,6 +236,7 @@ async function fetchAndAnalyze() {
                     }
                 }
 
+                let timestamp = lastCheck.timestamp;
                 let hash = lastCheck.hash;
                 let headers = transformHeaders(lastCheck.headers);
 
@@ -291,7 +317,8 @@ async function fetchAndAnalyze() {
                                     url,
                                     technology.name,
                                     technology.version,
-                                    technology.confidence
+                                    technology.confidence,
+                                    timestamp
                                 ).catch(console.log);
                             }
                         }
