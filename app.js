@@ -3,7 +3,7 @@ const ObjectId = require('mongodb').ObjectId;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
-const URLS_PER_REQUEST = 1000;
+const URLS_PER_REQUEST = 100;
 const START_ID = '603a6c5139ec133a07a37e2a';
 
 const HTMLParser = require('node-html-parser');
@@ -19,7 +19,7 @@ const fs = require('fs');
 let startId = undefined;
 
 const CMS_CATEGORY_ID = 1;
-const ELASTICSEARCH_INDEX = 'wappalyzer-index-new-structure-test';
+const ELASTICSEARCH_INDEX = 'wappalyzer-index-v2';
 
 const categories = JSON.parse(
     fs.readFileSync('/app/node_modules/wappalyzer/categories.json')
@@ -136,12 +136,15 @@ async function addToElasticsearch(url, cms_name, cms_version, confidence, timest
 
         let data = document.body['_source'];
 
-        data['wappalyzer_checks'][timestamp] = {
-            cms_name: cms_name,
-            cms_version: cms_version,
-            cms_version_defined: !(cms_version === undefined || cms_version === ''),
-            confidence: confidence
-        };
+        data[`wappalyzer_checks`].push(
+            {
+                timestamp: timestamp,
+                cms_name: cms_name,
+                cms_version: cms_version,
+                cms_version_defined: !(cms_version === undefined || cms_version === ''),
+                confidence: confidence
+            }
+        );
 
         if (timestamp > data['latest_timestamp']) {
             //updating latest data
@@ -160,21 +163,24 @@ async function addToElasticsearch(url, cms_name, cms_version, confidence, timest
 
 
     } catch (e) {
-        if (e.statusCode === 404) {
-            //adding entry
+        if (e.statusCode === 404) { // adding new entry
+            let checks = [];
+            checks.push(
+                {
+                    timestamp: timestamp,
+                    cms_name: cms_name,
+                    cms_version: cms_version,
+                    cms_version_defined: !(cms_version === undefined || cms_version === ''),
+                    confidence: confidence
+                }
+            );
+
             await client.index({
                 index: ELASTICSEARCH_INDEX,
                 id: url,
                 body: {
                     url: url,
-                    wappalyzer_checks: {
-                        timestamp: {
-                            cms_name: cms_name,
-                            cms_version: cms_version,
-                            cms_version_defined: !(cms_version === undefined || cms_version === ''),
-                            confidence: confidence
-                        }
-                    },
+                    wappalyzer_checks: checks,
                     latest_timestamp: timestamp,
                     latest_cms_name: cms_name,
                     latest_cms_version: cms_version,
