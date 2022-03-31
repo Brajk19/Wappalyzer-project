@@ -21,12 +21,11 @@ const fs = require('fs');
 let startId = undefined;
 
 const CMS_CATEGORY_ID = 1;
-const ELASTICSEARCH_INDEX = 'websecradar-detection-wappalyzer-test';
+const ELASTICSEARCH_INDEX = 'websecradar-detection-wappalyzer';
 
 const categories = JSON.parse(
     fs.readFileSync('/app/node_modules/wappalyzer/categories.json')
 )
-
 
 let technologies = {}; // all techonologies wappalyzer can detect
 
@@ -126,10 +125,9 @@ async function addToElasticsearch(url, cms_name, cms_version, confidence, timest
     await client.index({
         index: ELASTICSEARCH_INDEX,
         body: {
-            mainUrl: url,
-            pageHash: page_hash,
-            analyzedPages: [],
-            wappalyzer_timestamp: timestamp,
+            main_url: url,
+            page_hash: page_hash,
+            wappalyzer_timestamp: Number(timestamp),
             wappalyzer_rule: slugify(cms_name + " " + cms_version),
             cms_name: cms_name,
             cms_version: cms_version,
