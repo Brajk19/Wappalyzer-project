@@ -118,13 +118,7 @@ function transformHeaders(headersRaw) {
 }
 
 async function addToElasticsearch(url, cms_name, cms_version, confidence, timestamp) {
-    url = url.trim();
-
-    // sometimes there are two version of same website
-    // e.g 'www.fer.hr' and 'www.fer.hr/'
-    if(url[url.length - 1] === '/'){
-        url = url.slice(0, -1);
-    }
+    //TODO change timestamp with one for batch
 
     try {
         const document = await client.get(
