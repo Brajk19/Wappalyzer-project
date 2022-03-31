@@ -15,11 +15,13 @@ const Wappalyzer = require('wappalyzer-core');
 const { Client } = require('@elastic/elasticsearch')
 const client = new Client({ node: 'http://elasticsearch:9200' })
 
+const slugify = require('slugify')
+
 const fs = require('fs');
 let startId = undefined;
 
 const CMS_CATEGORY_ID = 1;
-const ELASTICSEARCH_INDEX = 'wappalyzer-index-v2';
+const ELASTICSEARCH_INDEX = 'websecradar-detection-wappalyzer-test';
 
 const categories = JSON.parse(
     fs.readFileSync('/app/node_modules/wappalyzer/categories.json')
@@ -117,72 +119,24 @@ function transformHeaders(headersRaw) {
     return headers;
 }
 
-async function addToElasticsearch(url, cms_name, cms_version, confidence, timestamp) {
+async function addToElasticsearch(url, cms_name, cms_version, confidence, timestamp, page_hash) {
     //TODO change timestamp with one for batch
+    //TODO implement batch insert
 
-    try {
-        const document = await client.get(
-            {
-                index: ELASTICSEARCH_INDEX,
-                id: url
-            }
-        )
-
-        let data = document.body['_source'];
-
-        data[`wappalyzer_checks`].push(
-            {
-                timestamp: timestamp,
-                cms_name: cms_name,
-                cms_version: cms_version,
-                cms_version_defined: !(cms_version === undefined || cms_version === ''),
-                confidence: confidence
-            }
-        );
-
-        if (timestamp > data['latest_timestamp']) {
-            //updating latest data
-            data['latest_timestamp'] = timestamp;
-            data['latest_cms_name'] = cms_name;
-            data['latest_cms_version'] = cms_version;
-            data['latest_cms_version_defined'] = !(cms_version === undefined || cms_version === '');
+    await client.index({
+        index: ELASTICSEARCH_INDEX,
+        body: {
+            mainUrl: url,
+            pageHash: page_hash,
+            analyzedPages: [],
+            wappalyzer_timestamp: timestamp,
+            wappalyzer_rule: slugify(cms_name + " " + cms_version),
+            cms_name: cms_name,
+            cms_version: cms_version,
+            cms_version_defined: !(cms_version === undefined || cms_version === ''),
+            cms_confidence: confidence
         }
-
-        // updating elasticsearch document
-        await client.index({
-            index: ELASTICSEARCH_INDEX,
-            id: url,
-            body: data
-        });
-
-
-    } catch (e) {
-        if (e.statusCode === 404) { // adding new entry
-            let checks = [];
-            checks.push(
-                {
-                    timestamp: timestamp,
-                    cms_name: cms_name,
-                    cms_version: cms_version,
-                    cms_version_defined: !(cms_version === undefined || cms_version === ''),
-                    confidence: confidence
-                }
-            );
-
-            await client.index({
-                index: ELASTICSEARCH_INDEX,
-                id: url,
-                body: {
-                    url: url,
-                    wappalyzer_checks: checks,
-                    latest_timestamp: timestamp,
-                    latest_cms_name: cms_name,
-                    latest_cms_version: cms_version,
-                    latest_cms_version_defined: !(cms_version === undefined || cms_version === '')
-                }
-            })
-        }
-    }
+    })
 }
 
 async function fetchAndAnalyze() {
@@ -214,17 +168,17 @@ async function fetchAndAnalyze() {
                 startId = urls[urls.length - 1]._id; // last (largest) processed ID
             }
 
-            const urlRegex = /^(?!https?:\/\/mail\.).*(\.hr|\.com|\.net)\/?$/;
+            const urlRegex = /^(?!https?:\/\/mail\.).*(\.hr|\.com|\.net|\.org)\/?$/;
             for (const document of urls) {
                 let url = document.url;
 
                 if(urlRegex.test(url) === false) {
+                    // TODO one time map of all extensions
                     continue;
                 }
 
                 let checks = document.checks;
                 let lastCheck = checks[Object.keys(checks).length - 1];
-                // TODO implement iterating over checks to find last non analyzed
 
                 if (checks === undefined || url === undefined || lastCheck === undefined) {
                     continue;
@@ -318,7 +272,8 @@ async function fetchAndAnalyze() {
                                     technology.name,
                                     technology.version,
                                     technology.confidence,
-                                    timestamp
+                                    timestamp,
+                                    hash
                                 ).catch(console.log);
                             }
                         }
