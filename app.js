@@ -21,6 +21,7 @@ const fs = require('fs');
 
 const CMS_CATEGORY_ID = 1;
 const ELASTICSEARCH_INDEX = 'websecradar-detection-wappalyzer';
+const ELASTICSEARCH_BATCH_SIZE = 1000;
 
 const categories = JSON.parse(
     fs.readFileSync('/app/node_modules/wappalyzer/categories.json')
@@ -112,13 +113,17 @@ function transformHeaders(headersRaw) {
     return headers;
 }
 
+let bulkData = [];
 async function addToElasticsearch(url, cms_name, cms_version, confidence, timestamp, page_hash) {
     //TODO change timestamp with one for batch
-    //TODO implement batch insert
 
-    await client.index({
-        index: ELASTICSEARCH_INDEX,
-        body: {
+    bulkData.push(
+        {
+            index: {
+                _index: ELASTICSEARCH_INDEX
+            }
+        },
+        {
             main_url: url,
             page_hash: page_hash,
             wappalyzer_timestamp: Number(timestamp),
@@ -128,7 +133,16 @@ async function addToElasticsearch(url, cms_name, cms_version, confidence, timest
             cms_version_defined: !(cms_version === undefined || cms_version === ''),
             cms_confidence: confidence
         }
-    })
+    );
+
+    if(bulkData.length >= ELASTICSEARCH_BATCH_SIZE) {
+        await pushToElasticsearch();
+    }
+}
+
+async function pushToElasticsearch() {
+    const { body: bulkResponse } = await client.bulk({ refresh: true, body: bulkData })
+    bulkData = [];
 }
 
 async function fetchAndAnalyze() {
@@ -277,6 +291,7 @@ async function fetchAndAnalyze() {
                         }
                     }
                 }
+                await pushToElasticsearch();
                 process.exit(0);
             }
         )
