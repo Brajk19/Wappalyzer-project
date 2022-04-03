@@ -115,8 +115,6 @@ function transformHeaders(headersRaw) {
 
 let bulkData = [];
 async function addToElasticsearch(url, cms_name, cms_version, confidence, timestamp, page_hash) {
-    //TODO change timestamp with one for batch
-
     bulkData.push(
         {
             index: {
@@ -169,6 +167,8 @@ async function fetchAndAnalyze() {
                         .sort({_id: 1})
                         .toArray();
 
+                    const currentTimestamp = Date.now();
+
                     if (urls.length === 0) {
                         // all documents have been processed
                         finished = true;
@@ -199,7 +199,6 @@ async function fetchAndAnalyze() {
                             }
                         }
 
-                        let timestamp = lastCheck.timestamp;
                         let hash = lastCheck.hash;
                         let headers = transformHeaders(lastCheck.headers);
 
@@ -281,7 +280,7 @@ async function fetchAndAnalyze() {
                                             technology.name,
                                             technology.version,
                                             technology.confidence,
-                                            timestamp,
+                                            currentTimestamp,
                                             hash
                                         ).catch(console.log);
                                     }
