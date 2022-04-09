@@ -1,10 +1,11 @@
 const MongoClient = require('mongodb').MongoClient;
 const ObjectId = require('mongodb').ObjectId;
 const MONGO_DB = 'websecradar';
+const MONGO_COLLECTION_DOMAINS = 'urls';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
 const URLS_PER_REQUEST = 200;
-const START_ID = '603a6c5139ec133a07a37e2a';
+const START_ID = '601f9e7e7cc44ef376827b50';
 
 const HTMLParser = require('node-html-parser');
 
@@ -21,7 +22,7 @@ const fs = require('fs');
 
 const CMS_CATEGORY_ID = 1;
 const ELASTICSEARCH_INDEX = 'websecradar-detection-wappalyzer';
-const ELASTICSEARCH_BATCH_SIZE = 1000;
+const ELASTICSEARCH_BATCH_SIZE = 500;
 
 const categories = JSON.parse(
     fs.readFileSync('/app/node_modules/wappalyzer/categories.json')
@@ -157,34 +158,33 @@ async function fetchAndAnalyze() {
 
                 while (finished === false) {
 
-                    // fetching urls from mongo
-                    const urls = await mongoDb.collection(MONGO_COLLECTION_URLS)
+                    const domains = await mongoDb.collection(MONGO_COLLECTION_DOMAINS)
                         .find(
-                            {_id: {$gt: new ObjectId(startId)}},
-                            {projection: {url: 1, checks: 1, _id: 1}} //fetch id, url and array checks
+                            { _id: { $gt: new ObjectId(startId) } },
+                            { projection: { url: 1, _id: 1 } }
                         )
                         .limit(URLS_PER_REQUEST)
-                        .sort({_id: 1})
+                        .sort({ _id: 1 })
                         .toArray();
 
                     const currentTimestamp = Date.now();
 
-                    if (urls.length === 0) {
+                    if (domains.length === 0){
                         // all documents have been processed
                         finished = true;
                     } else {
-                        startId = urls[urls.length - 1]._id; // last (largest) processed ID
+                        startId = domains[domains.length - 1]._id; // last (largest) processed ID
                     }
 
-                    const urlRegex = /^(?!https?:\/\/mail\.).*(\.hr|\.com|\.net|\.org)\/?$/;
 
-                    for (const document of urls) {
-                        let url = document.url;
+                    for (const domain of domains) {
+                        let url = domain.url;
 
-                        if (urlRegex.test(url) === false) {
-                            // TODO one time map of all extensions
-                            continue;
-                        }
+                        const document = await mongoDb.collection(MONGO_COLLECTION_URLS)
+                            .findOne(
+                                { url: url },
+                                { projection: { url: 1, checks: 1, _id: 1 } } //fetch id, url and array checks
+                            );
 
                         let checks = document.checks;
                         let lastCheck = checks[Object.keys(checks).length - 1];
@@ -194,19 +194,23 @@ async function fetchAndAnalyze() {
                         }
 
                         if (lastCheck.status_code !== undefined && lastCheck.status_code !== null) {
-                            if (Number(lastCheck.status_code) >= 300) {
+                            if (Number(lastCheck.status_code) >= 300 || Number(lastCheck.status_code) === -1) {
                                 continue;
                             }
                         }
 
                         let hash = lastCheck.hash;
+                        if(hash === null || hash === undefined) {
+                            continue;
+                        }
+
                         let headers = transformHeaders(lastCheck.headers);
 
                         //fetch html source code using hash
                         const doc = await mongoDb.collection(MONGO_COLLECTION_PAGES)
                             .findOne(
-                                {hash: hash},
-                                {projection: {page: 1, checks: 1, _id: 0}}
+                                { hash: hash },
+                                { projection: { page: 1, checks: 1, _id: 0 } }
                             );
 
                         if (doc === undefined || doc === null) {
@@ -286,6 +290,8 @@ async function fetchAndAnalyze() {
                                     }
                                 }
                             }
+
+                            // TODO add wappalyzer_processing to mongo and update it with timestamp
                         } catch (e) {
                         }
                     }
