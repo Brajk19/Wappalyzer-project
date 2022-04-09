@@ -4,8 +4,7 @@ const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_DOMAINS = 'urls';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
-const URLS_PER_REQUEST = 200;
-const START_ID = '601f9e7e7cc44ef376827b50';
+const URLS_PER_REQUEST = 3;
 
 const HTMLParser = require('node-html-parser');
 
@@ -23,6 +22,18 @@ const fs = require('fs');
 const CMS_CATEGORY_ID = 1;
 const ELASTICSEARCH_INDEX = 'websecradar-detection-wappalyzer';
 const ELASTICSEARCH_BATCH_SIZE = 500;
+
+
+let pos = process.argv.findIndex((arg) => arg === '--timestamp');
+
+const startTimestamp = pos === -1
+    ? Date.now() / 1000
+    : Number(process.argv[pos + 1]);
+
+if(isNaN(startTimestamp)) {
+    console.log("Timestamp provided is not a number.");
+    process.exit(0);
+}
 
 const categories = JSON.parse(
     fs.readFileSync('/app/node_modules/wappalyzer/categories.json')
@@ -123,7 +134,7 @@ async function addToElasticsearch(url, cms_name, cms_version, confidence, timest
             }
         },
         {
-            timestamp: timestamp / 1000,
+            timestamp: timestamp,
             page_hash: page_hash,
             match_rule: slugify(cms_name),
             rule_hash: slugify(cms_name + " " + cms_version),
@@ -151,7 +162,6 @@ async function fetchAndAnalyze() {
     const password = config.get('mongo.password');
     let url = 'mongodb://' + username + ':' + password + '@host.docker.internal/' + MONGO_DB + '?authSource=admin';
 
-    let startId = START_ID;
     let finished = false;
 
         await MongoClient.connect(url,
@@ -162,25 +172,23 @@ async function fetchAndAnalyze() {
 
                     const domains = await mongoDb.collection(MONGO_COLLECTION_DOMAINS)
                         .find(
-                            { _id: { $gt: new ObjectId(startId) } },
+                            { $or : [
+                                    { 'wappalyzer_processing': { $lt: startTimestamp } },
+                                    { 'wappalyzer_processing': { $exists: false } }
+                                ] },
                             { projection: { url: 1, _id: 1 } }
                         )
                         .limit(URLS_PER_REQUEST)
-                        .sort({ _id: 1 })
                         .toArray();
 
-                    const currentTimestamp = Date.now();
+                    const currentTimestamp = Date.now() / 1000;
 
-                    if (domains.length === 0){
-                        // all documents have been processed
-                        finished = true;
-                    } else {
-                        startId = domains[domains.length - 1]._id; // last (largest) processed ID
-                    }
+                    finished = domains.length === 0; // all documents have been processed
 
-
+                    let batchUrls = [];
                     for (const domain of domains) {
                         let url = domain.url;
+                        batchUrls.push(url);
 
                         const document = await mongoDb.collection(MONGO_COLLECTION_URLS)
                             .findOne(
@@ -297,6 +305,15 @@ async function fetchAndAnalyze() {
                         } catch (e) {
                         }
                     }
+
+                    if(finished === false) {
+                        await mongoDb.collection('urls')
+                            .updateMany(
+                                { url: { $in : batchUrls } },
+                                { $set: { 'wappalyzer_processing': currentTimestamp } }
+                            );
+                    }
+
                 }
                 await pushToElasticsearch();
                 process.exit(0);
