@@ -123,10 +123,12 @@ async function addToElasticsearch(url, cms_name, cms_version, confidence, timest
             }
         },
         {
-            main_url: url,
+            timestamp: timestamp / 1000,
             page_hash: page_hash,
-            wappalyzer_timestamp: Number(timestamp),
-            wappalyzer_rule: slugify(cms_name + " " + cms_version),
+            match_rule: slugify(cms_name),
+            rule_hash: slugify(cms_name + " " + cms_version),
+
+            main_url: url,
             cms_name: cms_name,
             cms_version: cms_version,
             cms_version_defined: !(cms_version === undefined || cms_version === ''),
