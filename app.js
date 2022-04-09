@@ -300,8 +300,6 @@ async function fetchAndAnalyze() {
                                     }
                                 }
                             }
-
-                            // TODO add wappalyzer_processing to mongo and update it with timestamp
                         } catch (e) {
                         }
                     }
