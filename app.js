@@ -1,5 +1,4 @@
 const MongoClient = require('mongodb').MongoClient;
-const ObjectId = require('mongodb').ObjectId;
 const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_DOMAINS = 'urls';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
