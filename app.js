@@ -175,7 +175,7 @@ async function fetchAndAnalyze() {
                                     { 'wappalyzer_processing': { $lt: startTimestamp } },
                                     { 'wappalyzer_processing': { $exists: false } }
                                 ] },
-                            { projection: { url: 1, _id: 1 } }
+                            { projection: { url: 1, _id: 0 } }
                         )
                         .limit(URLS_PER_REQUEST)
                         .toArray();
@@ -192,7 +192,7 @@ async function fetchAndAnalyze() {
                     const urlDocuments = await mongoDb.collection(MONGO_COLLECTION_URLS)
                         .find(
                             { url: { $in: batchUrls } },
-                            { projection: { url: 1, checks: 1, _id: 1 } }
+                            { projection: { url: 1, checks: 1, _id: 0 } }
                         )
                         .toArray();
 
