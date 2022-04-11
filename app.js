@@ -3,7 +3,7 @@ const MONGO_DB = 'websecradar';
 const MONGO_COLLECTION_DOMAINS = 'urls';
 const MONGO_COLLECTION_URLS = 'crawled_data_urls_v0';
 const MONGO_COLLECTION_PAGES = 'crawled_data_pages_v0';
-const URLS_PER_REQUEST = 3;
+const URLS_PER_REQUEST = 100;
 
 const HTMLParser = require('node-html-parser');
 
@@ -186,15 +186,18 @@ async function fetchAndAnalyze() {
 
                     let batchUrls = [];
                     for (const domain of domains) {
-                        let url = domain.url;
-                        batchUrls.push(url);
+                        batchUrls.push(domain.url);
+                    }
 
-                        const document = await mongoDb.collection(MONGO_COLLECTION_URLS)
-                            .findOne(
-                                { url: url },
-                                { projection: { url: 1, checks: 1, _id: 1 } } //fetch id, url and array checks
-                            );
+                    const urlDocuments = await mongoDb.collection(MONGO_COLLECTION_URLS)
+                        .find(
+                            { url: { $in: batchUrls } },
+                            { projection: { url: 1, checks: 1, _id: 1 } }
+                        )
+                        .toArray();
 
+                    for (const document of urlDocuments) {
+                        let url = document.url;
                         let checks = document.checks;
                         let lastCheck = checks[Object.keys(checks).length - 1];
 
@@ -313,7 +316,6 @@ async function fetchAndAnalyze() {
 
                 }
                 await pushToElasticsearch();
-                process.exit(0);
             }
         )
 }
